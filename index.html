@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Public Key Converter - Compress & Decompress Bitcoin/Ethereum Keys Online</title>
+    <meta name="description" content="Free online tool to convert between compressed (33 bytes) and uncompressed (65 bytes) public keys for Bitcoin, Ethereum, and other cryptocurrencies. Works offline in your browser. Safe, secure, and client-side only.">
+    <meta name="keywords" content="public key converter, compressed public key, uncompressed public key, bitcoin key converter, ethereum public key, secp256k1, elliptic curve, crypto key tool, blockchain development">
+    
+    <!-- React and ReactDOM from CDN -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        // Lucide React icons as simple SVG components
+        const AlertCircle = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+        );
+
+        const CheckCircle = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
+        );
+
+        const Key = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path>
+            </svg>
+        );
+
+        const KeyConverter = () => {
+            const [mode, setMode] = useState('uncompress');
+            const [inputKey, setInputKey] = useState('');
+            const [outputKey, setOutputKey] = useState('');
+            const [error, setError] = useState('');
+            const [success, setSuccess] = useState(false);
+
+            useEffect(() => {
+                document.title = 'Public Key Converter - Compress & Decompress Bitcoin/Ethereum Keys Online';
+            }, []);
+
+            const convertKey = () => {
+                setError('');
+                setSuccess(false);
+                setOutputKey('');
+
+                if (mode === 'uncompress') {
+                    uncompressKey();
+                } else {
+                    compressKey();
+                }
+            };
+
+            const compressKey = () => {
+                try {
+                    const cleanKey = inputKey.trim().replace(/^0x/i, '').replace(/\s/g, '');
+                    
+                    if (!/^[0-9a-fA-F]+$/.test(cleanKey)) {
+                        setError('Invalid hex format. Please use only hexadecimal characters (0-9, a-f)');
+                        return;
+                    }
+
+                    if (cleanKey.length !== 130) {
+                        setError(`Invalid length. Uncompressed key should be 65 bytes (130 hex characters). Got ${cleanKey.length} characters.`);
+                        return;
+                    }
+
+                    const prefix = cleanKey.substring(0, 2);
+                    if (prefix !== '04') {
+                        setError('Invalid prefix. Uncompressed key must start with 04');
+                        return;
+                    }
+
+                    const xHex = cleanKey.substring(2, 66);
+                    const yHex = cleanKey.substring(66, 130);
+                    const y = BigInt('0x' + yHex);
+
+                    const compressedPrefix = (y % BigInt(2) === BigInt(0)) ? '02' : '03';
+                    const compressed = compressedPrefix + xHex;
+
+                    setOutputKey(compressed);
+                    setSuccess(true);
+
+                } catch (err) {
+                    setError('Error compressing key: ' + err.message);
+                }
+            };
+
+            const uncompressKey = () => {
+                try {
+                    const cleanKey = inputKey.trim().replace(/^0x/i, '').replace(/\s/g, '');
+                    
+                    if (!/^[0-9a-fA-F]+$/.test(cleanKey)) {
+                        setError('Invalid hex format. Please use only hexadecimal characters (0-9, a-f)');
+                        return;
+                    }
+
+                    if (cleanKey.length !== 66) {
+                        setError(`Invalid length. Compressed key should be 33 bytes (66 hex characters). Got ${cleanKey.length} characters.`);
+                        return;
+                    }
+
+                    const prefix = cleanKey.substring(0, 2);
+                    if (prefix !== '02' && prefix !== '03') {
+                        setError('Invalid prefix. Compressed key must start with 02 or 03');
+                        return;
+                    }
+
+                    const xHex = cleanKey.substring(2);
+                    const x = BigInt('0x' + xHex);
+                    
+                    const p = BigInt('0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F');
+                    const a = BigInt(0);
+                    const b = BigInt(7);
+
+                    const ySquared = (x * x * x + a * x + b) % p;
+                    let y = modSqrt(ySquared, p);
+                    
+                    if (y === null) {
+                        setError('Invalid public key. Unable to compute y coordinate.');
+                        return;
+                    }
+
+                    const isEven = prefix === '02';
+                    if ((y % BigInt(2) === BigInt(0)) !== isEven) {
+                        y = p - y;
+                    }
+
+                    const uncompressed = '04' + 
+                        x.toString(16).padStart(64, '0') + 
+                        y.toString(16).padStart(64, '0');
+
+                    setOutputKey(uncompressed);
+                    setSuccess(true);
+
+                } catch (err) {
+                    setError('Error uncompressing key: ' + err.message);
+                }
+            };
+
+            const modSqrt = (n, p) => {
+                n = n % p;
+                if (n === BigInt(0)) return BigInt(0);
+                
+                if (modPow(n, (p - BigInt(1)) / BigInt(2), p) !== BigInt(1)) {
+                    return null;
+                }
+
+                if (p % BigInt(4) === BigInt(3)) {
+                    return modPow(n, (p + BigInt(1)) / BigInt(4), p);
+                }
+
+                let s = BigInt(0);
+                let q = p - BigInt(1);
+                while (q % BigInt(2) === BigInt(0)) {
+                    q = q / BigInt(2);
+                    s = s + BigInt(1);
+                }
+
+                let z = BigInt(2);
+                while (modPow(z, (p - BigInt(1)) / BigInt(2), p) !== p - BigInt(1)) {
+                    z = z + BigInt(1);
+                }
+
+                let m = s;
+                let c = modPow(z, q, p);
+                let t = modPow(n, q, p);
+                let r = modPow(n, (q + BigInt(1)) / BigInt(2), p);
+
+                while (t !== BigInt(1)) {
+                    let i = BigInt(1);
+                    let temp = (t * t) % p;
+                    while (temp !== BigInt(1)) {
+                        temp = (temp * temp) % p;
+                        i = i + BigInt(1);
+                    }
+
+                    let b = modPow(c, modPow(BigInt(2), m - i - BigInt(1), p - BigInt(1)), p);
+                    m = i;
+                    c = (b * b) % p;
+                    t = (t * c) % p;
+                    r = (r * b) % p;
+                }
+
+                return r;
+            };
+
+            const modPow = (base, exp, mod) => {
+                let result = BigInt(1);
+                base = base % mod;
+                while (exp > BigInt(0)) {
+                    if (exp % BigInt(2) === BigInt(1)) {
+                        result = (result * base) % mod;
+                    }
+                    exp = exp / BigInt(2);
+                    base = (base * base) % mod;
+                }
+                return result;
+            };
+
+            const formatKey = (key) => {
+                return key.match(/.{1,64}/g)?.join('\n') || key;
+            };
+
+            return (
+                <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-8">
+                    <div className="max-w-4xl mx-auto">
+                        <div className="mb-6 bg-green-900/20 border border-green-500/50 rounded-lg p-4 flex items-start gap-3">
+                            <CheckCircle className="w-6 h-6 text-green-400 flex-shrink-0 mt-0.5" />
+                            <div>
+                                <h2 className="text-green-300 font-semibold mb-1">🔒 100% Secure & Private</h2>
+                                <p className="text-green-200 text-sm">
+                                    All conversions happen in your browser. No data is sent to any server. Works completely offline - save this page and use it without internet access for maximum security.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="bg-slate-800/50 backdrop-blur-sm rounded-2xl shadow-2xl p-8 border border-slate-700">
+                            <div className="flex items-center gap-3 mb-4">
+                                <Key className="w-8 h-8 text-blue-400" />
+                                <h1 className="text-3xl font-bold text-white">Public Key Converter</h1>
+                            </div>
+                            
+                            <div className="mb-6 text-slate-300 space-y-2">
+                                <p className="text-base">
+                                    Convert between compressed and uncompressed public keys for Bitcoin, Ethereum, and other cryptocurrencies using the secp256k1 elliptic curve.
+                                </p>
+                                <div className="text-sm text-slate-400 bg-slate-900/30 rounded p-3 border border-slate-700">
+                                    <strong className="text-slate-300">What this tool does:</strong> Converts 33-byte compressed keys (starting with 02/03) to 65-byte uncompressed format (starting with 04), and vice versa. Essential for blockchain development, wallet compatibility, and cryptographic operations.
+                                </div>
+                            </div>
+
+                            <div className="flex gap-2 mb-8">
+                                <button
+                                    onClick={() => {
+                                        setMode('uncompress');
+                                        setInputKey('');
+                                        setOutputKey('');
+                                        setError('');
+                                        setSuccess(false);
+                                    }}
+                                    className={`flex-1 py-2 px-4 rounded-lg font-medium transition-all ${
+                                        mode === 'uncompress'
+                                            ? 'bg-blue-600 text-white'
+                                            : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                                    }`}
+                                >
+                                    Compressed → Uncompressed
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setMode('compress');
+                                        setInputKey('');
+                                        setOutputKey('');
+                                        setError('');
+                                        setSuccess(false);
+                                    }}
+                                    className={`flex-1 py-2 px-4 rounded-lg font-medium transition-all ${
+                                        mode === 'compress'
+                                            ? 'bg-blue-600 text-white'
+                                            : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                                    }`}
+                                >
+                                    Uncompressed → Compressed
+                                </button>
+                            </div>
+
+                            <div className="space-y-6">
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-200 mb-2">
+                                        {mode === 'uncompress' 
+                                            ? 'Compressed Public Key (33 bytes / 66 hex characters)'
+                                            : 'Uncompressed Public Key (65 bytes / 130 hex characters)'}
+                                    </label>
+                                    <textarea
+                                        value={inputKey}
+                                        onChange={(e) => setInputKey(e.target.value)}
+                                        placeholder={mode === 'uncompress' ? '02a1b2c3d4e5f6...' : '04a1b2c3d4e5f6...'}
+                                        className="w-full px-4 py-3 bg-slate-900/50 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm"
+                                        rows={mode === 'uncompress' ? '3' : '4'}
+                                    />
+                                    <p className="text-xs text-slate-400 mt-1">
+                                        {mode === 'uncompress' 
+                                            ? 'Must start with 02 or 03'
+                                            : 'Must start with 04'}
+                                    </p>
+                                </div>
+
+                                <button
+                                    onClick={convertKey}
+                                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors duration-200 flex items-center justify-center gap-2"
+                                >
+                                    <Key className="w-5 h-5" />
+                                    {mode === 'uncompress' ? 'Convert to Uncompressed' : 'Convert to Compressed'}
+                                </button>
+
+                                {error && (
+                                    <div className="flex items-start gap-3 p-4 bg-red-900/20 border border-red-500/50 rounded-lg">
+                                        <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+                                        <p className="text-red-300 text-sm">{error}</p>
+                                    </div>
+                                )}
+
+                                {success && outputKey && (
+                                    <div className="space-y-4">
+                                        <div className="flex items-start gap-3 p-4 bg-green-900/20 border border-green-500/50 rounded-lg">
+                                            <CheckCircle className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
+                                            <p className="text-green-300 text-sm">Successfully converted!</p>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-sm font-medium text-slate-200 mb-2">
+                                                {mode === 'uncompress'
+                                                    ? 'Uncompressed Public Key (65 bytes / 130 hex characters)'
+                                                    : 'Compressed Public Key (33 bytes / 66 hex characters)'}
+                                            </label>
+                                            <textarea
+                                                value={formatKey(outputKey)}
+                                                readOnly
+                                                className="w-full px-4 py-3 bg-slate-900/50 border border-slate-600 rounded-lg text-green-400 font-mono text-sm"
+                                                rows={mode === 'uncompress' ? '4' : '3'}
+                                            />
+                                            <button
+                                                onClick={() => navigator.clipboard.writeText(outputKey)}
+                                                className="mt-2 text-sm text-blue-400 hover:text-blue-300 transition-colors"
+                                            >
+                                                Copy to clipboard
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="mt-8 p-4 bg-slate-900/20 rounded-lg border border-slate-700/50 text-center">
+                                <p className="text-xs text-slate-500 mb-2">Advertisement</p>
+                                <div className="min-h-[90px] bg-slate-800/30 rounded flex items-center justify-center border border-dashed border-slate-600">
+                                    <p className="text-slate-600 text-sm">
+                                        AdSense Ad Unit
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="mt-6 p-4 bg-slate-900/30 rounded-lg border border-slate-700">
+                                <h3 className="text-sm font-semibold text-slate-200 mb-2">How it works:</h3>
+                                <ul className="text-xs text-slate-400 space-y-1 list-disc list-inside">
+                                    <li>Compressed keys: 33 bytes (prefix 02/03 + 32-byte x-coordinate)</li>
+                                    <li>Uncompressed keys: 65 bytes (prefix 04 + 32-byte x + 32-byte y)</li>
+                                    <li>Compress: Use y-coordinate parity to determine 02 (even) or 03 (odd)</li>
+                                    <li>Uncompress: Compute y using secp256k1 curve equation and Tonelli-Shanks</li>
+                                    <li>All calculations use secp256k1 elliptic curve parameters</li>
+                                </ul>
+                            </div>
+
+                            <div className="mt-6 space-y-4">
+                                <div className="p-4 bg-slate-900/20 rounded-lg border border-slate-700/50">
+                                    <h3 className="text-sm font-semibold text-slate-200 mb-2">Common Use Cases:</h3>
+                                    <ul className="text-xs text-slate-400 space-y-1">
+                                        <li>• <strong className="text-slate-300">Bitcoin Development:</strong> Converting keys for wallet compatibility and address generation</li>
+                                        <li>• <strong className="text-slate-300">Ethereum Projects:</strong> Working with different key formats in smart contracts and dApps</li>
+                                        <li>• <strong className="text-slate-300">Blockchain Analysis:</strong> Analyzing transaction signatures and public key cryptography</li>
+                                        <li>• <strong className="text-slate-300">Security Research:</strong> Testing elliptic curve implementations and key recovery</li>
+                                        <li>• <strong className="text-slate-300">Wallet Recovery:</strong> Converting between different wallet export formats</li>
+                                    </ul>
+                                </div>
+
+                                <div className="p-4 bg-slate-900/20 rounded-lg border border-slate-700/50">
+                                    <h3 className="text-sm font-semibold text-slate-200 mb-2">Why Use This Tool?</h3>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-slate-400">
+                                        <div>
+                                            <p className="font-medium text-slate-300 mb-1">✓ Client-Side Only</p>
+                                            <p>All processing happens in your browser. Zero server communication.</p>
+                                        </div>
+                                        <div>
+                                            <p className="font-medium text-slate-300 mb-1">✓ Works Offline</p>
+                                            <p>Save this page and use without internet for maximum security.</p>
+                                        </div>
+                                        <div>
+                                            <p className="font-medium text-slate-300 mb-1">✓ Open Algorithm</p>
+                                            <p>Uses standard secp256k1 curve with Tonelli-Shanks algorithm.</p>
+                                        </div>
+                                        <div>
+                                            <p className="font-medium text-slate-300 mb-1">✓ Instant Results</p>
+                                            <p>Fast conversions with built-in validation and error checking.</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="p-4 bg-slate-900/20 rounded-lg border border-slate-700/50">
+                                    <h3 className="text-sm font-semibold text-slate-200 mb-2">Understanding Public Key Formats:</h3>
+                                    <p className="text-xs text-slate-400 mb-2">
+                                        In elliptic curve cryptography (ECC), a public key is a point on the secp256k1 curve with x and y coordinates. The uncompressed format stores both coordinates (65 bytes total with 04 prefix), while the compressed format stores only the x-coordinate plus a parity bit (33 bytes total with 02/03 prefix).
+                                    </p>
+                                    <p className="text-xs text-slate-400">
+                                        This compression is possible because for any x-coordinate on the secp256k1 curve, there are only two possible y-coordinates (positive and negative). The prefix byte (02 or 03) indicates which y value to use, allowing full key recovery from just the x-coordinate.
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="mt-6 p-4 bg-slate-900/20 rounded-lg border border-slate-700/50">
+                                <h3 className="text-sm font-semibold text-slate-200 mb-3">Frequently Asked Questions:</h3>
+                                <div className="space-y-3 text-xs text-slate-400">
+                                    <div>
+                                        <p className="font-medium text-slate-300 mb-1">Q: Is it safe to use this tool for my private keys?</p>
+                                        <p>A: This tool is designed for PUBLIC keys only. Never enter private keys into any online tool. This converter works entirely in your browser with no server communication, but it's meant for public key conversion only.</p>
+                                    </div>
+                                    <div>
+                                        <p className="font-medium text-slate-300 mb-1">Q: Can I use this offline?</p>
+                                        <p>A: Yes! Save this page (File → Save As) and use it on an offline computer for maximum security. All cryptographic operations run in your browser using JavaScript.</p>
+                                    </div>
+                                    <div>
+                                        <p className="font-medium text-slate-300 mb-1">Q: What cryptocurrencies does this support?</p>
+                                        <p>A: This tool works with any cryptocurrency using the secp256k1 elliptic curve, including Bitcoin, Ethereum, Litecoin, and many others.</p>
+                                    </div>
+                                    <div>
+                                        <p className="font-medium text-slate-300 mb-1">Q: Why would I need to convert between formats?</p>
+                                        <p>A: Different wallets and blockchain tools use different key formats. Converting between compressed and uncompressed formats ensures compatibility across various applications and helps with wallet recovery, transaction analysis, and blockchain development.</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="mt-8 pt-4 border-t border-slate-700 text-center text-xs text-slate-500">
+                                <p>Public Key Converter - Free Cryptocurrency Development Tool</p>
+                                <p className="mt-1">Bitcoin | Ethereum | secp256k1 | Elliptic Curve Cryptography</p>
+                                <p className="mt-2">© 2025 - Educational tool for blockchain developers and security researchers</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        ReactDOM.render(<KeyConverter />, document.getElementById('root'));
+    </script>
+</body>
+</html>
